@@ -1,0 +1,190 @@
+description: Test commissioning File for influxDB connection
+ InfluxDB and Grafana without mappings
+
+metadata:
+  name: Quick Guide Service
+  version: online
+  icon: https://www.cybus.io/wp-content/uploads/2019/03/Cybus-logo-Claim-lang.svg
+  provider: cybus
+  homepage: https://www.cybus.io
+
+parameters:
+
+  opcuaHost:
+    type: string
+    description: OPC UA Host Address
+    default: opcua.demo-this.com
+
+  opcuaPort:
+    type: integer
+    description: OPC UA Host Port    
+    default: 51210
+
+#------------------------------------------------------------------------------
+# Definitions
+#------------------------------------------------------------------------------
+
+definitions:
+  influxdbAdminUsername: admin
+  influxdbAdminPassword: supersafepassword #only for example purposes
+  influxdbToken: "Em2KIZ5BGJC5Y39HAmtYWqc4nyAhR4c24qt6uGlYxJ4Y1GfOZtntqs3UgH1Ea4158k6gD5UKFps8u5Kc1HvSXB1diCxcz0niJpI"
+  influxdbOrg: cybus
+
+resources:
+  #----------------------------------------------------------------------------
+  # CONNECTIONS
+  #----------------------------------------------------------------------------
+
+  influxdbConnection:
+    type: Cybus::Connection
+    properties:
+      protocol: Influxdb
+      connection:
+        scheme: http
+        host: connectware
+        bucket: generic
+        token: !ref influxdbToken
+        org: !ref influxdbOrg
+
+  opcuaConnection:
+    type: Cybus::Connection
+    properties:
+      protocol: Opcua
+      connection:
+        host: !ref opcuaHost
+        port: !ref opcuaPort
+
+  #----------------------------------------------------------------------------
+  # CONTAINERS
+  #----------------------------------------------------------------------------
+
+  influxdb:
+    type: Cybus::Container
+    properties:
+      image: registry.hub.docker.com/library/influxdb:2.6
+      ports:
+        - 8086:8086
+      volumes:
+        - !sub '${influxdbVolume}:/var/lib/influxdb2'
+      environment:
+        DOCKER_INFLUXDB_INIT_USERNAME: !ref influxdbAdminUsername
+        DOCKER_INFLUXDB_INIT_PASSWORD: !ref influxdbAdminPassword
+        DOCKER_INFLUXDB_INIT_ORG: !ref influxdbOrg
+        DOCKER_INFLUXDB_INIT_BUCKET: generic
+        DOCKER_INFLUXDB_INIT_ADMIN_TOKEN: !ref influxdbToken
+        DOCKER_INFLUXDB_INIT_MODE: setup
+
+  genericGrafana:
+    type: Cybus::Container
+    properties:
+      image: grafana/grafana:10.2.3
+      volumes:
+        - !sub '${grafanaVolume}:/var/lib/grafana'
+      environment:
+        GF_SERVER_ROOT_URL: !sub '/services/${Cybus::ServiceId}/grafana'
+        GF_AUTH_ANONYMOUS_ENABLED: true
+        INFLUXDB_HOST: !ref influxdb
+        INFLUXDB_PORT: 8086
+        INFLUXDB_TOKEN: !ref influxdbToken
+        INFLUXDB_ORG: !ref influxdbOrg
+
+  #----------------------------------------------------------------------------
+  # VOLUMES
+  #----------------------------------------------------------------------------
+
+  grafanaVolume:
+    type: Cybus::Volume
+
+  influxdbVolume:
+    type: Cybus::Volume
+
+  #----------------------------------------------------------------------------
+  # INGRESS ROUTES
+  #----------------------------------------------------------------------------
+
+  # Grafana
+  grafanaURL:
+    type: Cybus::IngressRoute
+    properties:
+      container: !ref genericGrafana
+      type: http
+      slug: grafana
+      target:
+        path: '/'
+        port: 3000
+
+   # InfluxDB
+  influxdbRoute:
+    type: Cybus::IngressRoute
+    properties:
+      container: !ref influxdb
+      type: tcp
+      containerPort: 8086
+      connectwarePort: 8086
+
+  #----------------------------------------------------------------------------
+  # FRONTENDS
+  #----------------------------------------------------------------------------
+
+  # Influx_WebUI:
+  #   type: Cybus::Link
+  #   properties:
+  #     name: InfluxDB
+  #     href: 'http://localhost:8086/'
+
+  Grafana_WebUI:
+    type: Cybus::Link
+    properties:
+      name: Grafana
+      ingressRoute: !ref grafanaURL
+      href: ''
+
+  #----------------------------------------------------------------------------
+  # ENDPOINTS
+  #----------------------------------------------------------------------------
+
+        #----------------------------------------------------------------------------
+        # WRITER
+        #----------------------------------------------------------------------------
+
+  randomData_Write:
+    type: Cybus::Endpoint
+    properties:
+      protocol: Influxdb
+      connection: !ref influxdbConnection
+      write:
+        measurement: randomData
+
+        #----------------------------------------------------------------------------
+        # DATA
+        #----------------------------------------------------------------------------
+
+  randomData:
+    type: Cybus::Endpoint
+    properties:
+      protocol: Opcua
+      connection: !ref opcuaConnection
+      subscribe:
+        nodeId: 'NodeId ns=8;s=UInt32[0]'
+
+  #----------------------------------------------------------------------------
+  # MAPPINGS
+  #----------------------------------------------------------------------------
+
+  influxdbMapping:
+    type: Cybus::Mapping
+    properties:
+      mappings:  
+        - subscribe:
+            topic: 'random/+measurement'
+          publish:
+            endpoint: !ref randomData_Write
+
+  mqttMapping:
+    type: Cybus::Mapping
+    properties:
+      mappings:
+        - subscribe:
+            endpoint: !ref randomData
+          publish:
+            topic: 'random/temperature'
