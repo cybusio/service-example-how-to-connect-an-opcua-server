@@ -1,1 +1,2 @@
-# service-example-how-to-connect-an-opcua-server
+# Cybus Learn Lesson Example
+This repository contains the example service YAML for the Cybus Learn article “How to connect an OPC UA server” for a local environment.
